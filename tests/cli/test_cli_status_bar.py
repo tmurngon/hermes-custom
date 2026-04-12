@@ -1,7 +1,10 @@
 import time
 from datetime import datetime, timedelta
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+from rich.console import Console
 
 from cli import HermesCLI
 
@@ -79,7 +82,7 @@ class TestCLIStatusBar:
 
         text = cli_obj._build_status_bar_text(width=120)
 
-        assert "claude-sonnet-4-20250514" in text
+        assert "anthropic/claude-sonnet-4-20250514" in text
         assert "12.4K/200K" in text
         assert "6%" in text
         assert "$0.06" not in text  # cost hidden by default
@@ -252,13 +255,32 @@ class TestCLIStatusBar:
         assert "~R1.28" in rendered
         assert "15m" in rendered
 
+    def test_status_bar_uses_provider_prefixed_model_when_available(self):
+        cli_obj = _attach_agent(
+            _make_cli(model="claude-sonnet-4-20250514"),
+            prompt_tokens=10_230,
+            completion_tokens=2_220,
+            total_tokens=12_450,
+            api_calls=7,
+            context_tokens=12_450,
+            context_length=200_000,
+        )
+        cli_obj.provider = "anthropic"
+        cli_obj.agent.provider = "anthropic"
+
+        text = cli_obj._build_status_bar_text(width=120)
+
+        assert "anthropic/claude-sonnet-4-20250514" in text
+
     def test_build_status_bar_text_handles_missing_agent(self):
         cli_obj = _make_cli()
+
+        cli_obj.provider = "anthropic"
 
         text = cli_obj._build_status_bar_text(width=100)
 
         assert "⚕" in text
-        assert "claude-sonnet-4-20250514" in text
+        assert "anthropic/claude-sonnet-4-20250514" in text
 
     def test_compression_count_shown_in_wide_status_bar(self):
         cli_obj = _attach_agent(
@@ -639,6 +661,21 @@ class TestStatusBarWidthSource:
 
         mock_shutil.assert_called()
         assert len(frags) > 0
+
+    def test_show_status_displays_provider_prefixed_model(self):
+        cli_obj = _make_cli(model="claude-sonnet-4-20250514")
+        cli_obj.provider = "anthropic"
+        cli_obj.api_key = "test-key"
+        cli_obj.enabled_toolsets = None
+        cli_obj._provider_source = None
+        cli_obj.console = Console(file=StringIO(), force_terminal=False, no_color=True)
+
+        with patch("cli.get_tool_definitions", return_value=[]):
+            cli_obj._show_status()
+
+        output = cli_obj.console.file.getvalue()
+        assert "anthropic/claude-sonnet-4-20250514" in output
+        assert "provider: anthropic" in output
 
     def test_build_status_bar_text_uses_pt_width(self):
         """_build_status_bar_text() must also prefer prompt_toolkit width."""

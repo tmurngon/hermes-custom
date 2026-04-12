@@ -2693,15 +2693,27 @@ class HermesCLI:
         # _try_activate_fallback() switches provider/model.
         agent = getattr(self, "agent", None)
         model_name = (getattr(agent, "model", None) or self.model or "unknown")
-        model_short = model_name.split("/")[-1] if "/" in model_name else model_name
+        resolved_provider = (
+            getattr(agent, "provider", None)
+            or getattr(self, "provider", None)
+            or ""
+        )
+        if "/" in model_name:
+            display_model = model_name
+        elif resolved_provider and resolved_provider != "auto":
+            display_model = f"{resolved_provider}/{model_name}"
+        else:
+            display_model = model_name
+        model_short = display_model
         if model_short.endswith(".gguf"):
             model_short = model_short[:-5]
-        if len(model_short) > 26:
-            model_short = f"{model_short[:23]}..."
+        if len(model_short) > 40:
+            model_short = f"{model_short[:37]}..."
 
         elapsed_seconds = max(0.0, (datetime.now() - self.session_start).total_seconds())
         snapshot = {
             "model_name": model_name,
+            "display_model": display_model,
             "model_short": model_short,
             "duration": format_duration_compact(elapsed_seconds),
             "prompt_elapsed": self._format_prompt_elapsed(
@@ -4856,9 +4868,11 @@ class HermesCLI:
         tool_count = len(tools) if tools else 0
 
         # Format model name (shorten if needed)
-        model_short = self.model.split("/")[-1] if "/" in self.model else self.model
-        if len(model_short) > 30:
-            model_short = model_short[:27] + "..."
+        model_display = self.model or "unknown"
+        if "/" not in model_display and self.provider and self.provider != "auto":
+            model_display = f"{self.provider}/{model_display}"
+        if len(model_display) > 40:
+            model_display = model_display[:37] + "..."
 
         # Get API status indicator
         if self.api_key:
@@ -4891,7 +4905,7 @@ class HermesCLI:
             pass
 
         self._console_print(
-            f"  {api_indicator} [{accent_color}]{model_short}[/] "
+            f"  {api_indicator} [{accent_color}]{model_display}[/] "
             f"[dim {separator_color}]·[/] [bold {label_color}]{tool_count} tools[/]"
             f"{toolsets_info}{provider_info}{cost_info}"
         )
