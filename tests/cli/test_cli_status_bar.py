@@ -12,6 +12,10 @@ def _make_cli(model: str = "anthropic/claude-sonnet-4-20250514"):
     cli_obj.session_start = datetime.now() - timedelta(minutes=14, seconds=32)
     cli_obj.conversation_history = [{"role": "user", "content": "hi"}]
     cli_obj.agent = None
+    cli_obj.display_currency = "usd"
+    cli_obj.show_cost = False
+    cli_obj._session_exchange_rates = {}
+    cli_obj._status_bar_visible = True
     return cli_obj
 
 
@@ -79,6 +83,25 @@ class TestCLIStatusBar:
         assert "12.4K/200K" in text
         assert "6%" in text
         assert "$0.06" not in text  # cost hidden by default
+        assert "15m" in text
+
+    def test_build_status_bar_text_shows_zar_cost_when_enabled(self):
+        cli_obj = _attach_agent(
+            _make_cli(),
+            prompt_tokens=10_230,
+            completion_tokens=2_220,
+            total_tokens=12_450,
+            api_calls=7,
+            context_tokens=12_450,
+            context_length=200_000,
+        )
+        cli_obj.display_currency = "zar"
+        cli_obj.show_cost = True
+
+        with patch.object(HermesCLI, "_get_zar_rate", return_value=20):
+            text = cli_obj._build_status_bar_text(width=120)
+
+        assert "~R1.28" in text
         assert "15m" in text
 
     def test_input_height_counts_wide_characters_using_cell_width(self):
@@ -179,7 +202,16 @@ class TestCLIStatusBar:
         )
 
         text = cli_obj._build_status_bar_text(width=120)
-        assert "$" not in text  # cost is never shown in status bar
+        assert "$" not in text  # cost is hidden unless explicitly enabled
+        assert "R" not in text
+
+    def test_format_cost_label_falls_back_to_usd_when_zar_rate_missing(self):
+        cli_obj = _make_cli()
+        cli_obj.display_currency = "zar"
+
+        cost_result = SimpleNamespace(amount_usd=0.06, label="~$0.06", status="estimated")
+        with patch.object(HermesCLI, "_get_zar_rate", return_value=None):
+            assert cli_obj._format_cost_label(cost_result) == "~$0.06"
 
     def test_build_status_bar_text_collapses_for_narrow_terminal(self):
         cli_obj = _attach_agent(
@@ -195,9 +227,30 @@ class TestCLIStatusBar:
         text = cli_obj._build_status_bar_text(width=60)
 
         assert "⚕" in text
-        assert "$0.06" not in text  # cost hidden by default
+        assert "$0.06" not in text  # cost remains hidden in compact mode by default
         assert "15m" in text
         assert "200K" not in text
+
+    def test_status_bar_fragments_show_cost_when_enabled(self):
+        cli_obj = _attach_agent(
+            _make_cli(),
+            prompt_tokens=10_230,
+            completion_tokens=2_220,
+            total_tokens=12_450,
+            api_calls=7,
+            context_tokens=12_450,
+            context_length=200_000,
+        )
+        cli_obj.display_currency = "zar"
+        cli_obj.show_cost = True
+
+        with patch.object(HermesCLI, "_get_tui_terminal_width", return_value=120), \
+             patch.object(HermesCLI, "_get_zar_rate", return_value=20):
+            fragments = cli_obj._get_status_bar_fragments()
+
+        rendered = "".join(text for _, text in fragments)
+        assert "~R1.28" in rendered
+        assert "15m" in rendered
 
     def test_build_status_bar_text_handles_missing_agent(self):
         cli_obj = _make_cli()

@@ -28,11 +28,13 @@ import time
 import uuid
 import textwrap
 from collections import deque
+from decimal import Decimal
 from urllib.parse import unquote, urlparse
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +337,8 @@ def load_cli_config() -> Dict[str, Any]:
             "resume_display": "full",
             "show_reasoning": False,
             "streaming": True,
+            "show_cost": False,
+            "currency": "usd",
             "busy_input_mode": "interrupt",
             "persistent_output": True,
             "persistent_output_max_lines": 200,
@@ -2173,6 +2177,11 @@ class HermesCLI:
             enabled=CLI_CONFIG["display"].get("persistent_output", True),
             max_lines=CLI_CONFIG["display"].get("persistent_output_max_lines", 200),
         )
+        self.display_currency = str(CLI_CONFIG["display"].get("currency", "usd") or "usd").strip().lower()
+        self.show_cost = bool(
+            CLI_CONFIG["display"].get("show_cost", False)
+            or self.display_currency not in {"", "usd", "dollar", "dollars", "$"}
+        )
         # busy_input_mode: "interrupt" (Enter interrupts current run),
         # "queue" (Enter queues for next turn), or "steer" (Enter injects
         # mid-run via /steer, arriving after the next tool call).
@@ -2454,6 +2463,7 @@ class HermesCLI:
         self._voice_continuous = False
         self._voice_tts_done = threading.Event()
         self._voice_tts_done.set()
+        self._session_exchange_rates: dict[str, Decimal] = {}
 
         # Status bar visibility (toggled via /statusbar)
         self._status_bar_visible = True
@@ -2596,6 +2606,48 @@ class HermesCLI:
         filled = round((safe_percent / 100) * width)
         return f"[{('█' * filled) + ('░' * max(0, width - filled))}]"
 
+    def _get_zar_rate(self) -> Optional[Decimal]:
+        cached = getattr(self, "_session_exchange_rates", {}).get("zar")
+        if cached is not None:
+            return cached
+
+        try:
+            with urlopen("https://open.er-api.com/v6/latest/USD", timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            rate = payload.get("rates", {}).get("ZAR")
+            if rate is None:
+                return None
+            decimal_rate = Decimal(str(rate))
+            self._session_exchange_rates["zar"] = decimal_rate
+            return decimal_rate
+        except Exception:
+            return None
+
+    def _format_cost_label(self, cost_result: Any) -> str:
+        if not cost_result:
+            return "n/a"
+
+        label = str(getattr(cost_result, "label", "") or "n/a")
+        amount_usd = getattr(cost_result, "amount_usd", None)
+        currency = getattr(self, "display_currency", "usd")
+
+        if amount_usd is None:
+            return label
+        if getattr(cost_result, "status", "") == "included":
+            return "incl"
+
+        try:
+            amount_decimal = Decimal(str(amount_usd))
+        except Exception:
+            return label
+
+        prefix = "~" if label.startswith("~") else ""
+        if currency == "zar":
+            zar_rate = self._get_zar_rate()
+            if zar_rate is not None:
+                return f"{prefix}R{(amount_decimal * zar_rate):.2f}"
+        return f"{prefix}${amount_decimal:.2f}"
+
     @staticmethod
     def _format_prompt_elapsed(prompt_start_time: Optional[float], prompt_duration: float, live: bool = False) -> str:
         """Format per-prompt elapsed time for the status bar.
@@ -2669,6 +2721,7 @@ class HermesCLI:
             "session_total_tokens": 0,
             "session_api_calls": 0,
             "compressions": 0,
+            "cost_label": "",
         }
 
         if not agent:
@@ -2682,6 +2735,26 @@ class HermesCLI:
         snapshot["session_completion_tokens"] = getattr(agent, "session_completion_tokens", 0) or 0
         snapshot["session_total_tokens"] = getattr(agent, "session_total_tokens", 0) or 0
         snapshot["session_api_calls"] = getattr(agent, "session_api_calls", 0) or 0
+
+        if self.show_cost:
+            try:
+                usage = CanonicalUsage(
+                    input_tokens=snapshot["session_input_tokens"],
+                    output_tokens=snapshot["session_output_tokens"],
+                    cache_read_tokens=snapshot["session_cache_read_tokens"],
+                    cache_write_tokens=snapshot["session_cache_write_tokens"],
+                    request_count=max(1, snapshot["session_api_calls"]),
+                )
+                cost_result = estimate_usage_cost(
+                    model_name=snapshot["model_name"],
+                    usage=usage,
+                    provider=getattr(agent, "provider", None) or getattr(self, "provider", None),
+                    base_url=getattr(agent, "base_url", None) or getattr(self, "base_url", None),
+                    api_key=getattr(self, "api_key", None),
+                )
+                snapshot["cost_label"] = self._format_cost_label(cost_result)
+            except Exception:
+                snapshot["cost_label"] = "n/a"
 
         compressor = getattr(agent, "context_compressor", None)
         if compressor:
@@ -2891,6 +2964,8 @@ class HermesCLI:
             parts = [f"⚕ {snapshot['model_short']}", context_label, percent_label]
             if compressions:
                 parts.append(f"🗜️ {compressions}")
+            if snapshot["cost_label"]:
+                parts.append(snapshot["cost_label"])
             parts.append(duration_label)
             prompt_elapsed = snapshot.get("prompt_elapsed")
             if prompt_elapsed:
@@ -2962,6 +3037,11 @@ class HermesCLI:
                     if compressions:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append((self._compression_count_style(compressions), f"🗜️ {compressions}"))
+                    if snapshot["cost_label"]:
+                        frags.extend([
+                            ("class:status-bar-dim", " │ "),
+                            ("class:status-bar-dim", snapshot["cost_label"]),
+                        ])
                     frags.extend([
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", duration_label),
@@ -4802,11 +4882,18 @@ class HermesCLI:
         provider_info = f" [dim {separator_color}]·[/] [dim]provider: {self.provider}[/]"
         if self._provider_source:
             provider_info += f" [dim {separator_color}]·[/] [dim]auth: {self._provider_source}[/]"
+        cost_info = ""
+        try:
+            snapshot = self._get_status_bar_snapshot()
+            if snapshot.get("cost_label"):
+                cost_info = f" [dim {separator_color}]·[/] [dim]cost: {snapshot['cost_label']}[/]"
+        except Exception:
+            pass
 
         self._console_print(
             f"  {api_indicator} [{accent_color}]{model_short}[/] "
             f"[dim {separator_color}]·[/] [bold {label_color}]{tool_count} tools[/]"
-            f"{toolsets_info}{provider_info}"
+            f"{toolsets_info}{provider_info}{cost_info}"
         )
 
     def _show_session_status(self):
