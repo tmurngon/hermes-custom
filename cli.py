@@ -2177,6 +2177,10 @@ class HermesCLI:
             enabled=CLI_CONFIG["display"].get("persistent_output", True),
             max_lines=CLI_CONFIG["display"].get("persistent_output_max_lines", 200),
         )
+        # show_banner: render the startup/clear-screen banner block in the interactive CLI
+        self.show_banner_enabled = bool(CLI_CONFIG["display"].get("show_banner", False))
+        # show_full_submitted_prompt: echo the full submitted multi-line prompt instead of a one-line summary
+        self.show_full_submitted_prompt = bool(CLI_CONFIG["display"].get("show_full_submitted_prompt", False))
         self.display_currency = str(CLI_CONFIG["display"].get("currency", "usd") or "usd").strip().lower()
         self.show_cost = bool(
             CLI_CONFIG["display"].get("show_cost", False)
@@ -3288,6 +3292,13 @@ class HermesCLI:
         if len(lines) <= 1:
             return f"[bold {_accent_hex()}]●[/] [bold]{_escape(user_input)}[/]"
 
+        if getattr(self, "show_full_submitted_prompt", False):
+            preview_lines = [
+                f"[bold {_accent_hex()}]●[/] [bold]{_escape(lines[0])}[/]"
+            ]
+            preview_lines.extend(f"[bold]{_escape(line)}[/]" for line in lines[1:])
+            return "\n".join(preview_lines)
+
         first_lines = int(getattr(self, "user_message_preview_first_lines", 2))
         last_lines = int(getattr(self, "user_message_preview_last_lines", 2))
         first_lines = max(1, first_lines)
@@ -4055,6 +4066,8 @@ class HermesCLI:
     def show_banner(self):
         """Display the welcome banner in Claude Code style."""
         self.console.clear()
+        if not getattr(self, "show_banner_enabled", False):
+            return
 
         # Get context length for display before branching so it remains
         # available to the low-context warning logic in compact mode too.
@@ -4134,6 +4147,27 @@ class HermesCLI:
             )
 
         self._console_print()
+
+    def _print_submitted_user_input(self, user_input: str) -> None:
+        """Echo the submitted user prompt in scrollback."""
+        _user_bar = f"[{_accent_hex()}]{'─' * 40}[/]"
+        print()
+        ChatConsole().print(_user_bar)
+
+        if not isinstance(user_input, str):
+            ChatConsole().print(f"[bold {_accent_hex()}]●[/] [bold]{_escape(str(user_input))}[/]")
+            return
+
+        if '\n' in user_input and not self.show_full_submitted_prompt:
+            first_line = user_input.split('\n')[0]
+            line_count = user_input.count('\n') + 1
+            ChatConsole().print(
+                f"[bold {_accent_hex()}]●[/] [bold]{_escape(first_line)}[/] "
+                f"[dim](+{line_count - 1} lines)[/]"
+            )
+            return
+
+        ChatConsole().print(f"[bold {_accent_hex()}]●[/] [bold]{_escape(user_input)}[/]")
 
     def _preload_resumed_session(self) -> bool:
         """Load a resumed session's history from the DB early (before first chat).

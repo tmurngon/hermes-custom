@@ -830,6 +830,8 @@ DEFAULT_CONFIG = {
         "bell_on_complete": False,
         "show_reasoning": False,
         "streaming": False,
+        "show_banner": False,  # Show the startup/clear-screen banner block in the interactive CLI
+        "show_full_submitted_prompt": False,  # Echo the full submitted multi-line prompt instead of only the first line summary
         "final_response_markdown": "strip",  # render | strip | raw
         # Preserve recent classic CLI output across Ctrl+L, /redraw, and
         # terminal resize full-screen clears. Disable if a terminal emulator

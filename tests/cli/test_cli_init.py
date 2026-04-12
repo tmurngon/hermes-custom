@@ -102,6 +102,24 @@ class TestVerboseAndToolProgress:
         assert cli.tool_progress_mode in ("off", "new", "all", "verbose")
 
 
+class TestDisplayFlags:
+    def test_banner_flag_defaults_false(self):
+        cli = _make_cli()
+        assert cli.show_banner_enabled is False
+
+    def test_banner_flag_honors_config(self):
+        cli = _make_cli(config_overrides={"display": {"show_banner": True}})
+        assert cli.show_banner_enabled is True
+
+    def test_full_submitted_prompt_flag_defaults_false(self):
+        cli = _make_cli()
+        assert cli.show_full_submitted_prompt is False
+
+    def test_full_submitted_prompt_flag_honors_config(self):
+        cli = _make_cli(config_overrides={"display": {"show_full_submitted_prompt": True}})
+        assert cli.show_full_submitted_prompt is True
+
+
 class TestBusyInputMode:
     def test_default_busy_input_mode_is_interrupt(self):
         cli = _make_cli()
@@ -200,6 +218,50 @@ class TestSingleQueryState:
         assert cli._voice_tts_done.is_set()
         assert hasattr(cli, "_interrupt_queue")
         assert hasattr(cli, "_pending_input")
+
+
+class TestSubmittedPromptEcho:
+    def test_show_banner_becomes_noop_when_disabled(self):
+        cli = _make_cli()
+        cli.console = MagicMock()
+        with patch("cli.build_welcome_banner") as build_banner:
+            cli.show_banner()
+        cli.console.clear.assert_called_once()
+        build_banner.assert_not_called()
+
+    def test_multiline_prompt_is_summarized_by_default(self):
+        cli = _make_cli()
+        rendered_lines = []
+
+        class _FakeChatConsole:
+            def print(self, message, *args, **kwargs):
+                rendered_lines.append(message)
+
+        with patch.dict(cli._print_submitted_user_input.__globals__, {"ChatConsole": _FakeChatConsole}):
+            cli._print_submitted_user_input("first line\nsecond line\nthird line")
+
+        rendered = "\n".join(rendered_lines)
+        assert "first line" in rendered
+        assert "(+2 lines)" in rendered
+        assert "second line" not in rendered
+        assert "third line" not in rendered
+
+    def test_multiline_prompt_can_be_shown_in_full(self):
+        cli = _make_cli(config_overrides={"display": {"show_full_submitted_prompt": True}})
+        rendered_lines = []
+
+        class _FakeChatConsole:
+            def print(self, message, *args, **kwargs):
+                rendered_lines.append(message)
+
+        with patch.dict(cli._print_submitted_user_input.__globals__, {"ChatConsole": _FakeChatConsole}):
+            cli._print_submitted_user_input("first line\nsecond line\nthird line")
+
+        rendered = "\n".join(rendered_lines)
+        assert "first line" in rendered
+        assert "second line" in rendered
+        assert "third line" in rendered
+        assert "(+2 lines)" not in rendered
 
 
 class TestHistoryDisplay:
