@@ -84,6 +84,23 @@ class TestCLIStatusBar:
 
         assert "anthropic/claude-sonnet-4-20250514" in text
         assert "12.4K/200K" in text
+
+    def test_build_status_bar_text_shows_openrouter_and_origin_provider(self):
+        cli_obj = _attach_agent(
+            _make_cli(model="openai/gpt-4.1"),
+            prompt_tokens=10_230,
+            completion_tokens=2_220,
+            total_tokens=12_450,
+            api_calls=7,
+            context_tokens=12_450,
+            context_length=200_000,
+        )
+        cli_obj.provider = "openrouter"
+        cli_obj.agent.provider = "openrouter"
+
+        text = cli_obj._build_status_bar_text(width=120)
+
+        assert "openrouter/openai/gpt-4.1" in text
         assert "6%" in text
         assert "$0.06" not in text  # cost hidden by default
         assert "15m" in text
@@ -676,6 +693,21 @@ class TestStatusBarWidthSource:
         output = cli_obj.console.file.getvalue()
         assert "anthropic/claude-sonnet-4-20250514" in output
         assert "provider: anthropic" in output
+
+    def test_show_status_displays_openrouter_and_origin_provider(self):
+        cli_obj = _make_cli(model="openai/gpt-4.1")
+        cli_obj.provider = "openrouter"
+        cli_obj.api_key = "test-key"
+        cli_obj.enabled_toolsets = None
+        cli_obj._provider_source = None
+        cli_obj.console = Console(file=StringIO(), force_terminal=False, no_color=True)
+
+        with patch("cli.get_tool_definitions", return_value=[]):
+            cli_obj._show_status()
+
+        output = cli_obj.console.file.getvalue()
+        assert "openrouter/openai/gpt-4.1" in output
+        assert "provider: openrouter" in output
 
     def test_build_status_bar_text_uses_pt_width(self):
         """_build_status_bar_text() must also prefer prompt_toolkit width."""

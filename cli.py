@@ -2699,7 +2699,10 @@ class HermesCLI:
             or ""
         )
         if "/" in model_name:
-            display_model = model_name
+            if resolved_provider and resolved_provider not in {"", "auto"} and not model_name.startswith(f"{resolved_provider}/"):
+                display_model = f"{resolved_provider}/{model_name}"
+            else:
+                display_model = model_name
         elif resolved_provider and resolved_provider != "auto":
             display_model = f"{resolved_provider}/{model_name}"
         else:
@@ -4869,8 +4872,12 @@ class HermesCLI:
 
         # Format model name (shorten if needed)
         model_display = self.model or "unknown"
-        if "/" not in model_display and self.provider and self.provider != "auto":
-            model_display = f"{self.provider}/{model_display}"
+        if self.provider and self.provider != "auto":
+            if "/" in model_display:
+                if not model_display.startswith(f"{self.provider}/"):
+                    model_display = f"{self.provider}/{model_display}"
+            else:
+                model_display = f"{self.provider}/{model_display}"
         if len(model_display) > 40:
             model_display = model_display[:37] + "..."
 
