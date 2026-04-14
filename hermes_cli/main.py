@@ -36,6 +36,7 @@ Usage:
     hermes honcho migrate                  # Step-by-step migration guide: OpenClaw native → Hermes + Honcho
     hermes version             Show version
     hermes update              Update to latest version
+    hermes update-safe         Update main from upstream, then rebase your custom branch
     hermes uninstall           Uninstall Hermes Agent
     hermes acp                 Run as an ACP server for editor integration
     hermes sessions browse     Interactive session picker with search
@@ -8030,6 +8031,29 @@ def _cmd_update_impl(args, gateway_mode: bool):
             sys.exit(1)
 
 
+def cmd_update_safe(args):
+    """Safely update local Hermes customizations on top of upstream main."""
+    from hermes_cli.config import is_managed, managed_error
+
+    if is_managed():
+        managed_error("run update-safe")
+        return
+
+    script_path = PROJECT_ROOT / "scripts" / "update-safe.sh"
+    if not script_path.exists():
+        print("✗ update-safe script not found:")
+        print(f"  {script_path}")
+        sys.exit(1)
+
+    cmd = [str(script_path)]
+    if getattr(args, "branch", None):
+        cmd.append(args.branch)
+
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
 def _coalesce_session_name_args(argv: list) -> list:
     """Join unquoted multi-word session names after -c/--continue and -r/--resume.
 
@@ -10769,6 +10793,18 @@ Examples:
         help="Assume yes for interactive prompts (config migration, stash restore). API-key entry is skipped; run 'hermes config migrate' separately for those.",
     )
     update_parser.set_defaults(func=cmd_update)
+
+    update_safe_parser = subparsers.add_parser(
+        "update-safe",
+        help="Update main from upstream, then rebase your custom branch",
+        description="Sync local main from upstream/main, push main to origin, then rebase a target branch onto main"
+    )
+    update_safe_parser.add_argument(
+        "branch",
+        nargs="?",
+        help="Branch to rebase onto updated main (defaults to current branch, or feat/custom-status-bar-zar when run from main if that branch exists)"
+    )
+    update_safe_parser.set_defaults(func=cmd_update_safe)
 
     # =========================================================================
     # uninstall command
