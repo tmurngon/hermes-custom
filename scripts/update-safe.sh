@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Safe update helper for the customized Hermes fork.
+# Expected remote layout:
+#   origin   = git@github.com:tmurngon/hermes-custom.git
+#   upstream = git@github.com:NousResearch/hermes-agent.git
+
 repo_dir="${HERMES_REPO_DIR:-$HOME/.hermes/hermes-agent}"
 custom_branch_default="feat/custom-status-bar-zar"
+expected_origin_ssh="git@github.com:tmurngon/hermes-custom.git"
+expected_origin_https="https://github.com/tmurngon/hermes-custom.git"
 requested_branch="${1:-}"
 
 cd "$repo_dir"
@@ -57,6 +64,13 @@ fi
 if ! git remote get-url origin >/dev/null 2>&1; then
   echo "✗ Missing origin remote." >&2
   exit 1
+fi
+
+origin_url="$(git remote get-url origin)"
+if [[ "$origin_url" != "$expected_origin_ssh" && "$origin_url" != "$expected_origin_https" ]]; then
+  echo "⚠ Origin remote is not the expected hermes-custom fork:" >&2
+  echo "  Current:  $origin_url" >&2
+  echo "  Expected: $expected_origin_ssh" >&2
 fi
 
 if [[ -n "$target_branch" ]] && ! git show-ref --verify --quiet "refs/heads/$target_branch"; then
