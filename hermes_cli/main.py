@@ -1428,6 +1428,15 @@ def cmd_chat(args):
     _pin_kanban_board_env()
 
     if use_tui:
+        # The TUI runs as a separate Node/Python gateway process.  Classic CLI
+        # kwargs below are never reached, so carry explicit launch overrides
+        # through the subprocess environment.  This keeps wrappers like
+        # `hermes-strong --tui` (which expands to `hermes chat --provider ... -m ... --tui`)
+        # on the requested model instead of falling back to config defaults.
+        if getattr(args, "model", None):
+            os.environ["HERMES_MODEL"] = str(args.model)
+        if getattr(args, "provider", None):
+            os.environ["HERMES_TUI_PROVIDER"] = str(args.provider)
         _launch_tui(
             getattr(args, "resume", None),
             tui_dev=getattr(args, "tui_dev", False),

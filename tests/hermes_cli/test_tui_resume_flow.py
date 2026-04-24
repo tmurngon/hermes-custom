@@ -457,6 +457,21 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
     assert env["NODE_ENV"] == "production"
 
 
+def test_cmd_chat_tui_exports_model_and_provider_overrides(monkeypatch, main_mod):
+    def fake_launch(resume_session_id=None, tui_dev=False, model=None, provider=None, toolsets=None):
+        raise SystemExit(0)
+
+    monkeypatch.delenv("HERMES_MODEL", raising=False)
+    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
+    monkeypatch.setattr(main_mod, "_launch_tui", fake_launch)
+
+    with pytest.raises(SystemExit):
+        main_mod.cmd_chat(_args(model="gpt-5.5", provider="openai-codex"))
+
+    assert main_mod.os.environ["HERMES_MODEL"] == "gpt-5.5"
+    assert main_mod.os.environ["HERMES_TUI_PROVIDER"] == "openai-codex"
+
+
 def test_print_tui_exit_summary_includes_resume_and_token_totals(monkeypatch, capsys):
     import hermes_cli.main as main_mod
 

@@ -47,9 +47,9 @@ def test_make_agent_passes_resolved_provider():
         _make_agent("sid-1", "key-1")
 
         # target_model comes from _resolve_startup_runtime() which reads
-        # _load_cfg().  Due to module-level caching in tui_gateway.server,
+        # _load_cfg(). Due to module-level caching in tui_gateway.server,
         # the patched config may not take effect when the module was already
-        # imported by an earlier test.  Assert the stable part of the call.
+        # imported by an earlier test. Assert the stable parts of the call.
         mock_resolve.assert_called_once()
         assert mock_resolve.call_args.kwargs.get("requested") is None
 
@@ -67,7 +67,7 @@ def test_make_agent_ignores_display_personality_without_system_prompt():
     fake_runtime = {
         "provider": "openrouter",
         "base_url": "https://api.synthetic.new/v1",
-        "api_key": "sk-test",
+        "api_key": "***",
         "api_mode": "chat_completions",
         "command": None,
         "args": None,
@@ -102,7 +102,7 @@ def test_make_agent_honors_tui_launch_env_flags():
     fake_runtime = {
         "provider": "openrouter",
         "base_url": "https://api.synthetic.new/v1",
-        "api_key": "sk-test",
+        "api_key": "***",
         "api_mode": "chat_completions",
         "command": None,
         "args": None,
@@ -138,6 +138,45 @@ def test_make_agent_honors_tui_launch_env_flags():
         assert kwargs["pass_session_id"] is True
         assert kwargs["skip_context_files"] is True
         assert kwargs["skip_memory"] is True
+
+
+def test_make_agent_uses_tui_launch_provider_override(monkeypatch):
+    fake_runtime = {
+        "provider": "openai-codex",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+        "api_key": "***",
+        "api_mode": "codex_responses",
+        "command": None,
+        "args": None,
+        "credential_pool": None,
+    }
+    fake_cfg = {
+        "model": {"default": "google/gemini-3-flash-preview", "provider": "openrouter"},
+        "agent": {"system_prompt": "test"},
+    }
+
+    monkeypatch.setenv("HERMES_TUI_PROVIDER", "openai-codex")
+
+    with (
+        patch("tui_gateway.server._load_cfg", return_value=fake_cfg),
+        patch("tui_gateway.server._get_db", return_value=MagicMock()),
+        patch("tui_gateway.server._load_tool_progress_mode", return_value="compact"),
+        patch("tui_gateway.server._load_reasoning_config", return_value=None),
+        patch("tui_gateway.server._load_service_tier", return_value=None),
+        patch("tui_gateway.server._load_enabled_toolsets", return_value=None),
+        patch(
+            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            return_value=fake_runtime,
+        ) as mock_resolve,
+        patch("run_agent.AIAgent") as mock_agent,
+    ):
+        from tui_gateway.server import _make_agent
+
+        _make_agent("sid-strong", "key-strong")
+
+        assert mock_resolve.call_args.kwargs.get("requested") == "openai-codex"
+        assert mock_agent.call_args.kwargs["provider"] == "openai-codex"
+        assert mock_agent.call_args.kwargs["api_mode"] == "codex_responses"
 
 
 def test_probe_config_health_flags_null_sections():
