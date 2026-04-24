@@ -145,6 +145,21 @@ def test_estimate_usage_cost_marks_subscription_routes_included():
     assert float(result.amount_usd) == 0.0
 
 
+def test_estimate_usage_cost_prices_direct_deepseek_v4_pro():
+    result = estimate_usage_cost(
+        "deepseek-v4-pro",
+        CanonicalUsage(input_tokens=1000, output_tokens=1000, cache_read_tokens=1000),
+        provider="deepseek",
+        base_url="https://api.deepseek.com/v1",
+    )
+
+    assert result.status == "estimated"
+    assert result.source == "official_docs_snapshot"
+    # Official DeepSeek V4 Pro pricing: $1.74/M cache-miss input,
+    # $0.145/M cache-hit input, $3.48/M output.
+    assert float(result.amount_usd) == 0.005365
+
+
 def test_estimate_usage_cost_refuses_cache_pricing_without_official_cache_rate(monkeypatch):
     monkeypatch.setattr(
         "agent.usage_pricing.fetch_model_metadata",
