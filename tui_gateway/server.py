@@ -1703,6 +1703,17 @@ def _available_personalities(cfg: dict | None = None) -> dict:
             return (cfg.get("agent") or {}).get("personalities", {}) or {}
 
 
+def _resolve_personality_prompt(cfg: dict | None = None) -> str:
+    """Startup sessions do not automatically convert display.personality into
+    an ephemeral system prompt. The classic CLI only changes personality once
+    the prompt has been explicitly saved/applied, so preserve that behavior.
+
+    Keep this helper so startup call sites can safely ask for a personality
+    prompt without depending on older removed implementations.
+    """
+    return ""
+
+
 def _validate_personality(value: str, cfg: dict | None = None) -> tuple[str, str]:
     raw = str(value or "").strip()
     name = raw.lower()
