@@ -386,7 +386,8 @@ class TestCLIStatusBar:
         )
         cli_obj._status_bar_visible = True
 
-        frags = cli_obj._get_status_bar_fragments()
+        with patch.object(HermesCLI, "_get_tui_terminal_width", return_value=120):
+            frags = cli_obj._get_status_bar_fragments()
         frag_texts = [text for _, text in frags]
 
         assert "🗜️ 7" in frag_texts
@@ -727,7 +728,7 @@ class TestStatusBarWidthSource:
 
     def test_explicit_width_skips_pt_lookup(self):
         """An explicit width= argument must bypass both PT and shutil lookups."""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
         cli_obj = self._make_wide_cli()
 
         with patch("prompt_toolkit.application.get_app") as mock_get_app, \
